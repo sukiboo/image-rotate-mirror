@@ -14,8 +14,9 @@ ROTATION_STEP = 1.0
 DEFAULT_ROTATION = 0.0
 MIN_SELECTION = 32
 DEFAULT_IMAGE = "images/cow.jpeg"
-CROPPER_HEIGHT = 500
-PREVIEW_HEIGHT = 200
+CROPPER_HEIGHT = 512
+PREVIEW_HEIGHT = 256
+CROPPER_STROKE = 3
 
 st.set_page_config(page_title="Image Rotate & Mirror", layout="wide")
 st.title("Image Rotate & Mirror")
@@ -35,6 +36,8 @@ if st.session_state.get("upload_key") != upload_key:
     st.session_state.pop("box_x", None)
     st.session_state.pop("box_y", None)
     st.session_state.pop("box_size", None)
+    st.session_state["_fabric_scale_x"] = 1.0
+    st.session_state.pop("_prev_cropper", None)
     loaded = Image.open(uploaded if uploaded is not None else DEFAULT_IMAGE)
     if loaded.mode not in ("RGB", "RGBA"):
         loaded = loaded.convert("RGB")
@@ -57,7 +60,10 @@ min_size = min(MIN_SELECTION, max(2, max_size))
 
 display_scale = CROPPER_HEIGHT / rotated.height
 
-cropper_value = st.session_state.get("_cropper")
+scale_x = st.session_state.setdefault("_fabric_scale_x", 1.0)
+cropper_key = f"_cropper_{upload_key}"
+
+cropper_value = st.session_state.get(cropper_key)
 prev_cropper = st.session_state.get("_prev_cropper")
 if (
     cropper_value
@@ -68,6 +74,16 @@ if (
     coords = cropper_value["coords"]
     st.session_state["box_x"] = round(int(coords["left"]) / display_scale)
     st.session_state["box_y"] = round(int(coords["top"]) / display_scale)
+    cur_w = float(coords["width"])
+    visible = round(int(st.session_state.get("box_size", 0)) * display_scale)
+    last_sent = round(visible / scale_x) if scale_x > 0 else visible
+    expected_w = (last_sent + CROPPER_STROKE) * scale_x
+    if abs(cur_w - expected_w) > 1:
+        new_scale_x = cur_w / (last_sent + CROPPER_STROKE)
+        new_size = round(last_sent * new_scale_x / display_scale)
+        st.session_state["box_size"] = new_size - new_size % 2
+        st.session_state["_fabric_scale_x"] = new_scale_x
+        scale_x = new_scale_x
 st.session_state["_prev_cropper"] = cropper_value
 
 if "box_size" not in st.session_state:
@@ -134,7 +150,8 @@ display_img = rotated.resize(
 )
 disp_left = round(left * display_scale)
 disp_top = round(top * display_scale)
-disp_size = round(size * display_scale)
+visible = round(size * display_scale)
+disp_size = round(visible / scale_x) if scale_x > 0 else visible
 
 with img_col:
     st_cropper(
@@ -150,7 +167,8 @@ with img_col:
             disp_top + disp_size,
         ),
         should_resize_image=False,
-        key="_cropper",
+        stroke_width=CROPPER_STROKE,
+        key=cropper_key,
     )
 
 region = rotated.crop((left, top, left + size, top + size))
