@@ -6,7 +6,7 @@ import streamlit as st
 from PIL import Image
 from streamlit_cropper import st_cropper
 
-from mirror import mirror_pair, rotate
+from mirror import mirror_pair, rotate_full
 
 ROTATION_MIN = -45.0
 ROTATION_MAX = 45.0
@@ -17,6 +17,14 @@ DEFAULT_IMAGE = "images/cow.jpeg"
 CROPPER_HEIGHT = 512
 PREVIEW_HEIGHT = 256
 CROPPER_STROKE = 3
+CROPPER_BG_COLOR = "#1f2937"
+
+
+def _png_b64(im: Image.Image) -> str:
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
 
 st.set_page_config(page_title="Image Rotate & Mirror", layout="wide")
 st.title("Image Rotate & Mirror")
@@ -51,14 +59,21 @@ rotation = ctrl_col.slider(
 rot_key = (upload_key, rotation)
 if st.session_state.get("_rot_key") != rot_key:
     st.session_state["_rot_key"] = rot_key
-    st.session_state["_rotated"] = rotate(img, rotation)
-rotated = st.session_state["_rotated"]
+    st.session_state["_full_rotated"] = rotate_full(img, rotation)
+full_rotated = st.session_state["_full_rotated"]
 
-max_size = min(rotated.width, rotated.height)
+max_size = min(full_rotated.width, full_rotated.height)
 max_size -= max_size % 2
 min_size = min(MIN_SELECTION, max(2, max_size))
 
-display_scale = CROPPER_HEIGHT / rotated.height
+unit_scale = CROPPER_HEIGHT / img.height
+canvas_w = max(1, round(img.width * unit_scale))
+canvas_h = CROPPER_HEIGHT
+display_scale = min(canvas_w / full_rotated.width, canvas_h / full_rotated.height)
+display_img_w = max(1, round(full_rotated.width * display_scale))
+display_img_h = max(1, round(full_rotated.height * display_scale))
+offset_x = (canvas_w - display_img_w) // 2
+offset_y = (canvas_h - display_img_h) // 2
 
 scale_x = st.session_state.setdefault("_fabric_scale_x", 1.0)
 cropper_key = f"_cropper_{upload_key}"
@@ -72,8 +87,8 @@ if (
     and "coords" in cropper_value
 ):
     coords = cropper_value["coords"]
-    st.session_state["box_x"] = round(int(coords["left"]) / display_scale)
-    st.session_state["box_y"] = round(int(coords["top"]) / display_scale)
+    st.session_state["box_x"] = round((int(coords["left"]) - offset_x) / display_scale)
+    st.session_state["box_y"] = round((int(coords["top"]) - offset_y) / display_scale)
     cur_w = float(coords["width"])
     visible = round(int(st.session_state.get("box_size", 0)) * display_scale)
     last_sent = round(visible / scale_x) if scale_x > 0 else visible
@@ -93,11 +108,11 @@ size -= size % 2
 st.session_state["box_size"] = size
 
 if "box_x" not in st.session_state:
-    st.session_state["box_x"] = (rotated.width - size) // 2
+    st.session_state["box_x"] = (full_rotated.width - size) // 2
 if "box_y" not in st.session_state:
-    st.session_state["box_y"] = (rotated.height - size) // 2
-left = max(0, min(rotated.width - size, int(st.session_state["box_x"])))
-top = max(0, min(rotated.height - size, int(st.session_state["box_y"])))
+    st.session_state["box_y"] = (full_rotated.height - size) // 2
+left = max(0, min(full_rotated.width - size, int(st.session_state["box_x"])))
+top = max(0, min(full_rotated.height - size, int(st.session_state["box_y"])))
 st.session_state["box_x"] = left
 st.session_state["box_y"] = top
 
@@ -130,7 +145,7 @@ ctrl_col.number_input(
 ctrl_col.number_input(
     "X",
     min_value=0,
-    max_value=rotated.width - size,
+    max_value=full_rotated.width - size,
     step=1,
     key="_box_x_in",
     on_change=_sync_x,
@@ -138,24 +153,22 @@ ctrl_col.number_input(
 ctrl_col.number_input(
     "Y",
     min_value=0,
-    max_value=rotated.height - size,
+    max_value=full_rotated.height - size,
     step=1,
     key="_box_y_in",
     on_change=_sync_y,
 )
 
-display_img = rotated.resize(
-    (max(1, round(rotated.width * display_scale)), CROPPER_HEIGHT),
-    Image.Resampling.LANCZOS,
-)
-disp_left = round(left * display_scale)
-disp_top = round(top * display_scale)
+display_img = full_rotated.resize((display_img_w, display_img_h), Image.Resampling.LANCZOS)
+placeholder = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+disp_left = round(left * display_scale) + offset_x
+disp_top = round(top * display_scale) + offset_y
 visible = round(size * display_scale)
 disp_size = round(visible / scale_x) if scale_x > 0 else visible
 
 with img_col:
     st_cropper(
-        display_img,  # type: ignore[arg-type]
+        placeholder,  # type: ignore[arg-type]
         realtime_update=True,
         box_color="#3B82F6",
         aspect_ratio=(1, 1),
@@ -171,7 +184,42 @@ with img_col:
         key=cropper_key,
     )
 
-region = rotated.crop((left, top, left + size, top + size))
+display_img_b64 = _png_b64(display_img)
+img_col.html(
+    f"""
+    <script>
+    (function() {{
+      const url = 'data:image/png;base64,{display_img_b64}';
+      const pos = '{offset_x}px {offset_y}px';
+      const apply = () => {{
+        try {{
+          const iframes = Array.from(document.querySelectorAll('iframe'));
+          const iframe = iframes.find(f => {{
+            try {{ return f.contentDocument && f.contentDocument.querySelector('canvas'); }}
+            catch (e) {{ return false; }}
+          }});
+          if (!iframe) {{ requestAnimationFrame(apply); return; }}
+          const body = iframe.contentDocument.body;
+          if (!body) {{ requestAnimationFrame(apply); return; }}
+          iframe.style.width = '{canvas_w}px';
+          iframe.style.height = '{canvas_h}px';
+          body.style.margin = '0';
+          body.style.width = '{canvas_w}px';
+          body.style.height = '{canvas_h}px';
+          body.style.backgroundColor = '{CROPPER_BG_COLOR}';
+          body.style.backgroundImage = `url("${{url}}")`;
+          body.style.backgroundRepeat = 'no-repeat';
+          body.style.backgroundPosition = pos;
+        }} catch (e) {{ requestAnimationFrame(apply); }}
+      }};
+      apply();
+    }})();
+    </script>
+    """,
+    unsafe_allow_javascript=True,
+)
+
+region = full_rotated.crop((left, top, left + size, top + size))
 left_out, right_out = mirror_pair(region)
 
 preview_left = left_out.resize(
@@ -186,12 +234,6 @@ preview_right = right_out.resize(
 p1, p2, _ = img_col.columns([1, 1, 2])
 p1.image(preview_left, width="content")
 p2.image(preview_right, width="content")
-
-
-def _png_b64(im: Image.Image) -> str:
-    buf = io.BytesIO()
-    im.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
 
 
 stem = upload_name.rsplit(".", 1)[0]
