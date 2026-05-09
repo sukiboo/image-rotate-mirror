@@ -16,8 +16,12 @@ MIN_SELECTION = 32
 DEFAULT_IMAGE = "images/cow.jpeg"
 CROPPER_HEIGHT = 512
 PREVIEW_HEIGHT = 256
-CROPPER_STROKE = 3
-CROPPER_BG_COLOR = "#1f2937"
+CROPPER_STROKE = 2
+CROPPER_BOX_COLOR = "#9ca3af"
+CHECKER_DARK = "#c6c6c6"
+CHECKER_LIGHT = "#d0d0d0"
+CHECKER_CELL = 10
+DIM_ALPHA = 96
 
 
 def _png_b64(im: Image.Image) -> str:
@@ -92,9 +96,10 @@ if (
     cur_w = float(coords["width"])
     visible = round(int(st.session_state.get("box_size", 0)) * display_scale)
     last_sent = round(visible / scale_x) if scale_x > 0 else visible
-    expected_w = (last_sent + CROPPER_STROKE) * scale_x
+    stroke_eff_old = CROPPER_STROKE / scale_x if scale_x > 0 else CROPPER_STROKE
+    expected_w = (last_sent + stroke_eff_old) * scale_x
     if abs(cur_w - expected_w) > 1:
-        new_scale_x = cur_w / (last_sent + CROPPER_STROKE)
+        new_scale_x = cur_w / (last_sent + stroke_eff_old)
         new_size = round(last_sent * new_scale_x / display_scale)
         st.session_state["box_size"] = new_size - new_size % 2
         st.session_state["_fabric_scale_x"] = new_scale_x
@@ -119,7 +124,13 @@ st.session_state["box_y"] = top
 
 def _sync_size():
     val = int(st.session_state["_box_size_in"])
-    st.session_state["box_size"] = val - val % 2
+    new_size = val - val % 2
+    old_size = int(st.session_state.get("box_size", new_size))
+    shift = (new_size - old_size) // 2
+    st.session_state["box_size"] = new_size
+    if shift:
+        st.session_state["box_x"] = int(st.session_state.get("box_x", 0)) - shift
+        st.session_state["box_y"] = int(st.session_state.get("box_y", 0)) - shift
 
 
 def _sync_x():
@@ -165,12 +176,19 @@ disp_left = round(left * display_scale) + offset_x
 disp_top = round(top * display_scale) + offset_y
 visible = round(size * display_scale)
 disp_size = round(visible / scale_x) if scale_x > 0 else visible
+stroke_eff = CROPPER_STROKE / scale_x if scale_x > 0 else CROPPER_STROKE
+
+bg_image = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+bg_image.alpha_composite(
+    display_img if display_img.mode == "RGBA" else display_img.convert("RGBA"),
+    (offset_x, offset_y),
+)
 
 with img_col:
     st_cropper(
         placeholder,  # type: ignore[arg-type]
         realtime_update=True,
-        box_color="#3B82F6",
+        box_color=CROPPER_BOX_COLOR,
         aspect_ratio=(1, 1),
         return_type="box",
         default_coords=(
@@ -180,17 +198,24 @@ with img_col:
             disp_top + disp_size,
         ),
         should_resize_image=False,
-        stroke_width=CROPPER_STROKE,
+        stroke_width=stroke_eff,
         key=cropper_key,
     )
 
-display_img_b64 = _png_b64(display_img)
+bg_b64 = _png_b64(bg_image)
+dim_alpha_css = round(DIM_ALPHA / 255 * 1000) / 1000
 img_col.html(
     f"""
     <script>
     (function() {{
-      const url = 'data:image/png;base64,{display_img_b64}';
-      const pos = '{offset_x}px {offset_y}px';
+      const url = 'data:image/png;base64,{bg_b64}';
+      const pos = '0 0';
+      const canvasW = {canvas_w};
+      const canvasH = {canvas_h};
+      const holeLeft0 = {disp_left};
+      const holeTop0 = {disp_top};
+      const holeSize0 = {visible};
+      const dimAlpha = {dim_alpha_css};
       const apply = () => {{
         try {{
           const iframes = Array.from(document.querySelectorAll('iframe'));
@@ -199,17 +224,117 @@ img_col.html(
             catch (e) {{ return false; }}
           }});
           if (!iframe) {{ requestAnimationFrame(apply); return; }}
-          const body = iframe.contentDocument.body;
+          const idoc = iframe.contentDocument;
+          const body = idoc.body;
           if (!body) {{ requestAnimationFrame(apply); return; }}
-          iframe.style.width = '{canvas_w}px';
-          iframe.style.height = '{canvas_h}px';
+          iframe.style.width = canvasW + 'px';
+          iframe.style.height = canvasH + 'px';
           body.style.margin = '0';
-          body.style.width = '{canvas_w}px';
-          body.style.height = '{canvas_h}px';
-          body.style.backgroundColor = '{CROPPER_BG_COLOR}';
-          body.style.backgroundImage = `url("${{url}}")`;
-          body.style.backgroundRepeat = 'no-repeat';
-          body.style.backgroundPosition = pos;
+          body.style.width = canvasW + 'px';
+          body.style.height = canvasH + 'px';
+          const checkerTile = {CHECKER_CELL * 2};
+          body.style.backgroundColor = '{CHECKER_LIGHT}';
+          body.style.backgroundImage = `url("${{url}}"), conic-gradient({CHECKER_DARK} 25%, {CHECKER_LIGHT} 0 50%, {CHECKER_DARK} 0 75%, {CHECKER_LIGHT} 0)`;
+          body.style.backgroundRepeat = 'no-repeat, repeat';
+          body.style.backgroundPosition = pos + ', 0 0';
+          body.style.backgroundSize = `auto, ${{checkerTile}}px ${{checkerTile}}px`;
+          if (!body.style.position) body.style.position = 'relative';
+
+          let hole = idoc.getElementById('dim-hole');
+          if (!hole) {{
+            hole = idoc.createElement('div');
+            hole.id = 'dim-hole';
+            hole.style.position = 'absolute';
+            hole.style.pointerEvents = 'none';
+            hole.style.zIndex = '0';
+            body.insertBefore(hole, body.firstChild);
+          }}
+          hole.style.boxShadow = `0 0 0 99999px rgba(0,0,0,${{dimAlpha}})`;
+
+          const SPLIT_W = 2;
+          let split = idoc.getElementById('split-line');
+          if (!split) {{
+            split = idoc.createElement('div');
+            split.id = 'split-line';
+            split.style.position = 'absolute';
+            split.style.pointerEvents = 'none';
+            split.style.width = SPLIT_W + 'px';
+            split.style.backgroundColor = '{CROPPER_BOX_COLOR}';
+            split.style.zIndex = '0';
+            body.insertBefore(split, body.firstChild);
+          }}
+
+          const setBox = (l, t, s) => {{
+            hole.style.left = l + 'px';
+            hole.style.top = t + 'px';
+            hole.style.width = s + 'px';
+            hole.style.height = s + 'px';
+            split.style.left = (l + s / 2 - SPLIT_W / 2) + 'px';
+            split.style.top = t + 'px';
+            split.style.height = s + 'px';
+          }};
+          setBox(holeLeft0, holeTop0, holeSize0);
+          hole.style.display = '';
+          split.style.display = '';
+
+          const upper = body.querySelector('canvas[data-fabric="top"]');
+          if (upper && !upper.__dimHooked) {{
+            upper.__dimHooked = true;
+            const HANDLE_PAD = 6;
+            upper.addEventListener('pointerdown', (ev) => {{
+              const r = upper.getBoundingClientRect();
+              const mx = ev.clientX - r.left;
+              const my = ev.clientY - r.top;
+              const hL = parseFloat(hole.style.left);
+              const hT = parseFloat(hole.style.top);
+              const hS = parseFloat(hole.style.width);
+              const hR = hL + hS;
+              const hB = hT + hS;
+              const hcx = (hL + hR) / 2;
+              const hcy = (hT + hB) / 2;
+              const handles = [
+                [hL, hT], [hR, hT], [hL, hB], [hR, hB],
+                [hcx, hT], [hcx, hB], [hL, hcy], [hR, hcy],
+              ];
+              const onHandle = handles.some(([hx, hy]) =>
+                Math.abs(mx - hx) < HANDLE_PAD && Math.abs(my - hy) < HANDLE_PAD);
+              const inside = mx >= hL && mx <= hR && my >= hT && my <= hB;
+              const pid = ev.pointerId;
+              if (onHandle) {{
+                try {{ upper.setPointerCapture(pid); }} catch (e) {{}}
+                hole.style.display = 'none';
+                split.style.display = 'none';
+                const onUp = (e) => {{
+                  if (e.pointerId !== pid) return;
+                  upper.removeEventListener('pointerup', onUp);
+                  upper.removeEventListener('pointercancel', onUp);
+                }};
+                upper.addEventListener('pointerup', onUp);
+                upper.addEventListener('pointercancel', onUp);
+                return;
+              }}
+              if (!inside) return;
+              try {{ upper.setPointerCapture(pid); }} catch (e) {{}}
+              const startMx = mx, startMy = my;
+              const startL = hL, startT = hT;
+              const onMove = (e) => {{
+                if (e.pointerId !== pid) return;
+                const r2 = upper.getBoundingClientRect();
+                const dx = (e.clientX - r2.left) - startMx;
+                const dy = (e.clientY - r2.top) - startMy;
+                setBox(startL + dx, startT + dy, hS);
+              }};
+              const onUp = (e) => {{
+                if (e.pointerId !== pid) return;
+                upper.removeEventListener('pointermove', onMove);
+                upper.removeEventListener('pointerup', onUp);
+                upper.removeEventListener('pointercancel', onUp);
+              }};
+              upper.addEventListener('pointermove', onMove);
+              upper.addEventListener('pointerup', onUp);
+              upper.addEventListener('pointercancel', onUp);
+            }});
+          }}
         }} catch (e) {{ requestAnimationFrame(apply); }}
       }};
       apply();
