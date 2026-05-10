@@ -14,8 +14,10 @@ ROTATION_STEP = 1
 DEFAULT_ROTATION = 0
 MIN_SELECTION = 32
 DEFAULT_IMAGE = "images/cow.jpeg"
-CROPPER_HEIGHT = 512
-PREVIEW_HEIGHT = 256
+MAX_APP_SIZE = 1200
+GAP_PX = 16
+CROPPER_HEIGHT = MAX_APP_SIZE // 2
+PREVIEW_HEIGHT = (CROPPER_HEIGHT - GAP_PX) // 2
 CROPPER_STROKE = 2
 CROPPER_BOX_COLOR = "#9ca3af"
 CHECKER_DARK = "#c6c6c6"
@@ -32,25 +34,70 @@ def _png_b64(im: Image.Image) -> str:
 
 st.set_page_config(page_title="Image Rotate & Mirror", layout="wide")
 st.markdown(
-    """
+    f"""
     <style>
-      [data-testid="stToolbar"] { display: none; }
-      [data-testid="stHeader"] { display: none; }
+      [data-testid="stToolbar"] {{ display: none; }}
+      [data-testid="stHeader"] {{ display: none; }}
       [data-testid="stAppViewContainer"] > .main > .block-container,
-      .block-container { padding-top: 1rem; }
-      .section-header {
+      .block-container {{
+        max-width: {2 * CROPPER_HEIGHT + GAP_PX + 32}px;
+        padding: 1rem 1rem 1rem 1rem;
+      }}
+      .section-header {{
         margin: 1rem 0 0.25rem 0;
         font-size: 0.75rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         opacity: 0.6;
-      }
+      }}
       [data-testid="stHorizontalBlock"]:has(iframe),
-      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) {
-        gap: 1rem;
+      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) {{
+        gap: {GAP_PX}px;
+        flex-wrap: nowrap;
         justify-content: flex-start;
-      }
+      }}
+      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(1) {{
+        flex: 0 0 calc(50% - {GAP_PX // 2}px);
+        max-width: {CROPPER_HEIGHT}px;
+        min-width: 0;
+      }}
+      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(2) {{
+        flex: 0 0 calc(25% - {GAP_PX // 4 + GAP_PX // 2}px);
+        max-width: {PREVIEW_HEIGHT}px;
+        min-width: 0;
+      }}
+      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) > [data-testid="stColumn"] {{
+        flex: 0 0 calc(37.5% - {(GAP_PX // 2 + GAP_PX // 4 + GAP_PX // 2) // 2}px);
+        max-width: {(CROPPER_HEIGHT + PREVIEW_HEIGHT) // 2}px;
+        min-width: 0;
+      }}
+      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(2) > [data-testid="stVerticalBlock"] {{
+        gap: {GAP_PX}px;
+      }}
+      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(1) iframe {{
+        border-radius: 8px;
+      }}
+      [data-testid="stFileUploaderDropzone"] {{
+        flex-direction: row !important;
+        align-items: center !important;
+        height: 84px !important;
+        box-sizing: border-box;
+      }}
+      [data-testid="stFileUploaderDropzone"] button {{
+        min-width: 120px;
+      }}
+      [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .section-header-sel),
+      [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .section-header-ud) {{
+        gap: 0.25rem;
+      }}
+      [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .section-header-sel) [data-testid="stHorizontalBlock"] {{
+        flex-wrap: nowrap;
+      }}
+      [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .section-header-sel) > :nth-child(2),
+      [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .section-header-ud) > :nth-child(2) {{
+        margin-top: 0.75rem;
+      }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -58,12 +105,13 @@ st.markdown(
 st.title("Image Rotate & Mirror")
 
 
-def section(col, label):
-    col.markdown(f'<div class="section-header">{label}</div>', unsafe_allow_html=True)
+def section(col, label, name=""):
+    extra = f" section-header-{name}" if name else ""
+    col.markdown(f'<div class="section-header{extra}">{label}</div>', unsafe_allow_html=True)
 
 
 def _inline_label(container, label):
-    lcol, icol = container.columns([1, 5])
+    lcol, icol = container.columns([1, 4])
     lcol.markdown(
         f'<div style="padding-top: 0.5rem; font-size: 0.95rem;">{label}</div>',
         unsafe_allow_html=True,
@@ -71,11 +119,11 @@ def _inline_label(container, label):
     return icol
 
 
-top_left, top_right = st.columns([2, 1])
+top_left, top_right = st.columns(2)
 mid_left, mid_right = st.columns(2)
 sel_container = mid_left.container()
 
-section(mid_right, "Upload / Download image")
+section(mid_right, "Upload / Download image", "ud")
 uploaded = mid_right.file_uploader(
     "Upload image",
     type=["png", "jpg", "jpeg", "webp"],
@@ -115,33 +163,8 @@ max_size = min(full_rotated.width, full_rotated.height)
 max_size -= max_size % 2
 min_size = min(MIN_SELECTION, max(2, max_size))
 
-unit_scale = CROPPER_HEIGHT / img.height
-canvas_w = max(1, round(img.width * unit_scale))
-canvas_h = CROPPER_HEIGHT
+canvas_w = canvas_h = CROPPER_HEIGHT
 
-st.markdown(
-    f"""
-    <style>
-      [data-testid="stHorizontalBlock"]:has(iframe),
-      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) {{
-        flex-wrap: nowrap;
-      }}
-      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(1),
-      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) > [data-testid="stColumn"]:nth-child(1) {{
-        flex: {canvas_w} 1 0;
-        max-width: {canvas_w}px;
-        min-width: 0;
-      }}
-      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(2),
-      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) > [data-testid="stColumn"]:nth-child(2) {{
-        flex: {PREVIEW_HEIGHT} 1 0;
-        max-width: {PREVIEW_HEIGHT}px;
-        min-width: 0;
-      }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 display_scale = min(canvas_w / full_rotated.width, canvas_h / full_rotated.height)
 display_img_w = max(1, round(full_rotated.width * display_scale))
 display_img_h = max(1, round(full_rotated.height * display_scale))
@@ -214,7 +237,7 @@ st.session_state["_box_size_in"] = size
 st.session_state["_box_x_in"] = left
 st.session_state["_box_y_in"] = top
 
-section(sel_container, "Selection")
+section(sel_container, "Selection Area", "sel")
 
 _inline_label(sel_container, "Size").number_input(
     "Size",
@@ -480,17 +503,21 @@ mid_right.html(
       html, body {{ margin: 0; background: transparent; font-family: 'Source Sans', 'Source Sans Pro', sans-serif; color: rgb(250, 250, 250); }}
       .dl-dropzone {{
         display: flex;
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: row;
+        align-items: center;
         gap: 12px;
         padding: 12px;
+        height: 84px;
+        box-sizing: border-box;
         border-radius: 0.5rem;
         background-color: rgb(38, 39, 48);
       }}
       .dl-button {{
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 0.25rem;
+        min-width: 120px;
         height: 40px;
         padding: 6px 12px;
         box-sizing: border-box;
