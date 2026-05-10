@@ -8,10 +8,10 @@ from streamlit_cropper import st_cropper
 
 from mirror import mirror_pair, rotate_full
 
-ROTATION_MIN = -45.0
-ROTATION_MAX = 45.0
-ROTATION_STEP = 1.0
-DEFAULT_ROTATION = 0.0
+ROTATION_MIN = -360
+ROTATION_MAX = 360
+ROTATION_STEP = 1
+DEFAULT_ROTATION = 0
 MIN_SELECTION = 32
 DEFAULT_IMAGE = "images/cow.jpeg"
 CROPPER_HEIGHT = 512
@@ -31,11 +31,56 @@ def _png_b64(im: Image.Image) -> str:
 
 
 st.set_page_config(page_title="Image Rotate & Mirror", layout="wide")
+st.markdown(
+    """
+    <style>
+      [data-testid="stToolbar"] { display: none; }
+      [data-testid="stHeader"] { display: none; }
+      [data-testid="stAppViewContainer"] > .main > .block-container,
+      .block-container { padding-top: 1rem; }
+      .section-header {
+        margin: 1rem 0 0.25rem 0;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.6;
+      }
+      [data-testid="stHorizontalBlock"]:has(iframe),
+      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) {
+        gap: 1rem;
+        justify-content: flex-start;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.title("Image Rotate & Mirror")
 
-img_col, ctrl_col = st.columns([3, 1])
 
-uploaded = ctrl_col.file_uploader("Upload image", type=["png", "jpg", "jpeg", "webp"])
+def section(col, label):
+    col.markdown(f'<div class="section-header">{label}</div>', unsafe_allow_html=True)
+
+
+def _inline_label(container, label):
+    lcol, icol = container.columns([1, 5])
+    lcol.markdown(
+        f'<div style="padding-top: 0.5rem; font-size: 0.95rem;">{label}</div>',
+        unsafe_allow_html=True,
+    )
+    return icol
+
+
+top_left, top_right = st.columns([2, 1])
+mid_left, mid_right = st.columns(2)
+sel_container = mid_left.container()
+
+section(mid_right, "Upload / Download image")
+uploaded = mid_right.file_uploader(
+    "Upload image",
+    type=["png", "jpg", "jpeg", "webp"],
+    label_visibility="collapsed",
+)
 if uploaded is not None:
     upload_key = getattr(uploaded, "file_id", uploaded.name)
     upload_name = uploaded.name
@@ -56,9 +101,9 @@ if st.session_state.get("upload_key") != upload_key:
     st.session_state["_img"] = loaded
 img = st.session_state["_img"]
 
-rotation = ctrl_col.slider(
-    "Rotation (°)", ROTATION_MIN, ROTATION_MAX, DEFAULT_ROTATION, ROTATION_STEP
-)
+if "_rotation_in" not in st.session_state:
+    st.session_state["_rotation_in"] = DEFAULT_ROTATION
+rotation = st.session_state["_rotation_in"]
 
 rot_key = (upload_key, rotation)
 if st.session_state.get("_rot_key") != rot_key:
@@ -73,6 +118,30 @@ min_size = min(MIN_SELECTION, max(2, max_size))
 unit_scale = CROPPER_HEIGHT / img.height
 canvas_w = max(1, round(img.width * unit_scale))
 canvas_h = CROPPER_HEIGHT
+
+st.markdown(
+    f"""
+    <style>
+      [data-testid="stHorizontalBlock"]:has(iframe),
+      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) {{
+        flex-wrap: nowrap;
+      }}
+      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(1),
+      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) > [data-testid="stColumn"]:nth-child(1) {{
+        flex: {canvas_w} 1 0;
+        max-width: {canvas_w}px;
+        min-width: 0;
+      }}
+      [data-testid="stHorizontalBlock"]:has(iframe) > [data-testid="stColumn"]:nth-child(2),
+      [data-testid="stHorizontalBlock"]:has([data-testid="stFileUploader"]) > [data-testid="stColumn"]:nth-child(2) {{
+        flex: {PREVIEW_HEIGHT} 1 0;
+        max-width: {PREVIEW_HEIGHT}px;
+        min-width: 0;
+      }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 display_scale = min(canvas_w / full_rotated.width, canvas_h / full_rotated.height)
 display_img_w = max(1, round(full_rotated.width * display_scale))
 display_img_h = max(1, round(full_rotated.height * display_scale))
@@ -145,29 +214,42 @@ st.session_state["_box_size_in"] = size
 st.session_state["_box_x_in"] = left
 st.session_state["_box_y_in"] = top
 
-ctrl_col.number_input(
-    "Selection size",
+section(sel_container, "Selection")
+
+_inline_label(sel_container, "Size").number_input(
+    "Size",
     min_value=min_size,
     max_value=max_size,
     step=2,
     key="_box_size_in",
     on_change=_sync_size,
+    label_visibility="collapsed",
 )
-ctrl_col.number_input(
+_inline_label(sel_container, "X").number_input(
     "X",
     min_value=0,
     max_value=full_rotated.width - size,
     step=1,
     key="_box_x_in",
     on_change=_sync_x,
+    label_visibility="collapsed",
 )
-ctrl_col.number_input(
+_inline_label(sel_container, "Y").number_input(
     "Y",
     min_value=0,
     max_value=full_rotated.height - size,
     step=1,
     key="_box_y_in",
     on_change=_sync_y,
+    label_visibility="collapsed",
+)
+_inline_label(sel_container, "Rotation").number_input(
+    "Rotation",
+    min_value=ROTATION_MIN,
+    max_value=ROTATION_MAX,
+    step=ROTATION_STEP,
+    key="_rotation_in",
+    label_visibility="collapsed",
 )
 
 display_img = full_rotated.resize((display_img_w, display_img_h), Image.Resampling.LANCZOS)
@@ -184,7 +266,7 @@ bg_image.alpha_composite(
     (offset_x, offset_y),
 )
 
-with img_col:
+with top_left:
     st_cropper(
         placeholder,  # type: ignore[arg-type]
         realtime_update=True,
@@ -204,7 +286,7 @@ with img_col:
 
 bg_b64 = _png_b64(bg_image)
 dim_alpha_css = round(DIM_ALPHA / 255 * 1000) / 1000
-img_col.html(
+top_left.html(
     f"""
     <script>
     (function() {{
@@ -216,22 +298,39 @@ img_col.html(
       const holeTop0 = {disp_top};
       const holeSize0 = {visible};
       const dimAlpha = {dim_alpha_css};
+      const findIframe = () => {{
+        const iframes = Array.from(document.querySelectorAll('iframe'));
+        return iframes.find(f => {{
+          try {{ return f.contentDocument && f.contentDocument.querySelector('canvas'); }}
+          catch (e) {{ return false; }}
+        }});
+      }};
+      const updateScale = () => {{
+        const iframe = findIframe();
+        if (!iframe || !iframe.contentDocument || !iframe.contentDocument.body) return;
+        const body = iframe.contentDocument.body;
+        const parent = iframe.parentElement;
+        const availW = parent ? parent.getBoundingClientRect().width : canvasW;
+        const sc = Math.min(1, availW / canvasW) || 1;
+        iframe.style.width = (canvasW * sc) + 'px';
+        iframe.style.height = (canvasH * sc) + 'px';
+        body.style.transformOrigin = 'top left';
+        body.style.transform = sc < 1 ? `scale(${{sc}})` : '';
+        const upperEl = body.querySelector('canvas[data-fabric="top"]');
+        if (upperEl) upperEl.__scale = sc;
+      }};
       const apply = () => {{
         try {{
-          const iframes = Array.from(document.querySelectorAll('iframe'));
-          const iframe = iframes.find(f => {{
-            try {{ return f.contentDocument && f.contentDocument.querySelector('canvas'); }}
-            catch (e) {{ return false; }}
-          }});
+          const iframe = findIframe();
           if (!iframe) {{ requestAnimationFrame(apply); return; }}
           const idoc = iframe.contentDocument;
           const body = idoc.body;
           if (!body) {{ requestAnimationFrame(apply); return; }}
-          iframe.style.width = canvasW + 'px';
-          iframe.style.height = canvasH + 'px';
           body.style.margin = '0';
           body.style.width = canvasW + 'px';
           body.style.height = canvasH + 'px';
+          body.style.overflow = 'hidden';
+          if (idoc.documentElement) idoc.documentElement.style.overflow = 'hidden';
           const checkerTile = {CHECKER_CELL * 2};
           body.style.backgroundColor = '{CHECKER_LIGHT}';
           body.style.backgroundImage = `url("${{url}}"), conic-gradient({CHECKER_DARK} 25%, {CHECKER_LIGHT} 0 50%, {CHECKER_DARK} 0 75%, {CHECKER_LIGHT} 0)`;
@@ -277,14 +376,22 @@ img_col.html(
           hole.style.display = '';
           split.style.display = '';
 
+          updateScale();
+          if (window.__cropperResizeListener) {{
+            window.removeEventListener('resize', window.__cropperResizeListener);
+          }}
+          window.__cropperResizeListener = () => {{ requestAnimationFrame(updateScale); }};
+          window.addEventListener('resize', window.__cropperResizeListener);
+
           const upper = body.querySelector('canvas[data-fabric="top"]');
           if (upper && !upper.__dimHooked) {{
             upper.__dimHooked = true;
             const HANDLE_PAD = 6;
             upper.addEventListener('pointerdown', (ev) => {{
+              const sc = upper.__scale || 1;
               const r = upper.getBoundingClientRect();
-              const mx = ev.clientX - r.left;
-              const my = ev.clientY - r.top;
+              const mx = (ev.clientX - r.left) / sc;
+              const my = (ev.clientY - r.top) / sc;
               const hL = parseFloat(hole.style.left);
               const hT = parseFloat(hole.style.top);
               const hS = parseFloat(hole.style.width);
@@ -319,10 +426,11 @@ img_col.html(
               const startL = hL, startT = hT;
               const onMove = (e) => {{
                 if (e.pointerId !== pid) return;
+                const sc2 = upper.__scale || 1;
                 const r2 = upper.getBoundingClientRect();
-                const dx = (e.clientX - r2.left) - startMx;
-                const dy = (e.clientY - r2.top) - startMy;
-                setBox(startL + dx, startT + dy, hS);
+                const mx2 = (e.clientX - r2.left) / sc2;
+                const my2 = (e.clientY - r2.top) / sc2;
+                setBox(startL + (mx2 - startMx), startT + (my2 - startMy), hS);
               }};
               const onUp = (e) => {{
                 if (e.pointerId !== pid) return;
@@ -356,9 +464,8 @@ preview_right = right_out.resize(
     Image.Resampling.LANCZOS,
 )
 
-p1, p2, _ = img_col.columns([1, 1, 2])
-p1.image(preview_left, width="content")
-p2.image(preview_right, width="content")
+top_right.image(preview_left, width="stretch")
+top_right.image(preview_right, width="stretch")
 
 
 stem = upload_name.rsplit(".", 1)[0]
@@ -367,19 +474,58 @@ right_b64 = _png_b64(right_out)
 left_name = f"{stem}_left.png"
 right_name = f"{stem}_right.png"
 
-ctrl_col.html(
+mid_right.html(
     f"""
-    <div style="text-align:center; padding-top:0.5rem;">
-      <button id="dl-both" style="
-          padding: 0.5rem 1.5rem;
-          border: 1px solid rgba(49,51,63,0.2);
-          border-radius: 0.5rem;
-          background: #ffffff;
-          color: #31333F;
-          font-size: 1rem;
-          font-family: inherit;
-          cursor: pointer;
-      ">Download both</button>
+    <style>
+      html, body {{ margin: 0; background: transparent; font-family: 'Source Sans', 'Source Sans Pro', sans-serif; color: rgb(250, 250, 250); }}
+      .dl-dropzone {{
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 0.5rem;
+        background-color: rgb(38, 39, 48);
+      }}
+      .dl-button {{
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        height: 40px;
+        padding: 6px 12px;
+        box-sizing: border-box;
+        border: 1px solid rgba(250, 250, 250, 0.2);
+        border-radius: 0.5rem;
+        background: transparent;
+        color: rgb(250, 250, 250);
+        font-size: 1rem;
+        line-height: 25.6px;
+        font-family: inherit;
+        cursor: pointer;
+        transition: border-color 120ms ease, color 120ms ease;
+      }}
+      .dl-button:hover {{
+        border-color: rgb(255, 75, 75);
+        color: rgb(255, 75, 75);
+      }}
+      .dl-icon {{
+        font-family: 'Material Symbols Rounded';
+        font-size: 20px;
+        line-height: 20px;
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: normal;
+        font-feature-settings: 'liga';
+      }}
+      .dl-info {{
+        font-size: 14px;
+        line-height: 22.4px;
+        color: rgba(250, 250, 250, 0.6);
+      }}
+    </style>
+    <div class="dl-dropzone">
+      <button id="dl-both" class="dl-button"><span class="dl-icon">download</span><span>Download</span></button>
+      <div class="dl-info">Save left + right images as PNG</div>
     </div>
     <script>
     (function() {{
