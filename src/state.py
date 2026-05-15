@@ -1,22 +1,37 @@
 import streamlit as st
 from PIL import Image
 
-from src.constants import CROPPER_STROKE, DEFAULT_IMAGE, DEFAULT_ROTATION
+from src.constants import (
+    CROPPER_STROKE,
+    DEFAULT_IMAGE,
+    DEFAULT_IMAGE_BOX_SIZE,
+    DEFAULT_IMAGE_BOX_X,
+    DEFAULT_IMAGE_BOX_Y,
+    DEFAULT_ROTATION,
+)
 from src.mirror import rotate_full
 
 
 def load_image(uploaded, upload_key):
     if st.session_state.get("upload_key") != upload_key:
         st.session_state["upload_key"] = upload_key
-        st.session_state.pop("box_x", None)
-        st.session_state.pop("box_y", None)
-        st.session_state.pop("box_size", None)
         st.session_state["_fabric_scale_x"] = 1.0
         st.session_state.pop("_prev_cropper", None)
+        st.session_state.pop("_rotation_in", None)
         loaded = Image.open(uploaded if uploaded is not None else DEFAULT_IMAGE)
         if loaded.mode not in ("RGB", "RGBA"):
             loaded = loaded.convert("RGB")
         st.session_state["_img"] = loaded
+        if uploaded is None:
+            st.session_state["box_size"] = DEFAULT_IMAGE_BOX_SIZE
+            st.session_state["box_x"] = DEFAULT_IMAGE_BOX_X
+            st.session_state["box_y"] = DEFAULT_IMAGE_BOX_Y
+        else:
+            size = min(loaded.width, loaded.height) // 2
+            size -= size % 2
+            st.session_state["box_size"] = size
+            st.session_state["box_x"] = (loaded.width - size) // 2
+            st.session_state["box_y"] = (loaded.height - size) // 2
     return st.session_state["_img"]
 
 

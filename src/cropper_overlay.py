@@ -121,7 +121,12 @@ def _overlay_script(bg_b64, canvas_w, canvas_h, disp_left, disp_top, visible, di
           body.style.width = canvasW + 'px';
           body.style.height = canvasH + 'px';
           body.style.overflow = 'hidden';
-          if (idoc.documentElement) idoc.documentElement.style.overflow = 'hidden';
+          if (idoc.documentElement) {{
+            idoc.documentElement.style.overflow = 'hidden';
+            // Prevent body's background from propagating to the viewport — otherwise it
+            // escapes body's transform: scale() and renders at natural size at narrow widths.
+            idoc.documentElement.style.backgroundImage = 'linear-gradient(transparent, transparent)';
+          }}
           const checkerTile = {CHECKER_CELL * 2};
           body.style.backgroundColor = '{CHECKER_LIGHT}';
           body.style.backgroundImage = `url("${{url}}"), conic-gradient({CHECKER_DARK} 25%, {CHECKER_LIGHT} 0 50%, {CHECKER_DARK} 0 75%, {CHECKER_LIGHT} 0)`;
