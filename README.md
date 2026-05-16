@@ -21,6 +21,12 @@ short_description: Just a silly little app to make silly little cat pictures
 2. Adjust selection area
 3. Download two images
 
+The app is deployed on HF free-tier toaster so it's painfully slow; you can run it locally with:
+```
+pip install -r requirements.txt
+streamlit run app.py
+```
+
 ### Why
 
 1. I was bored
