@@ -8,10 +8,8 @@ sdk_version: 1.56.0
 app_file: app.py
 pinned: false
 license: mit
-short_description: Crop, rotate, and mirror an image into two.
+short_description: Just a silly little app to make silly little cat pictures.
 ---
-
-Just a silly little app to make silly little cat pictures.
 
 | Input | Left mirror | Right mirror |
 |---|---|---|

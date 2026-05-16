@@ -10,14 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          lfs: true
 
-      - name: Push to HF Space
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install huggingface_hub
+        run: pip install -U "huggingface_hub[cli]"
+
+      - name: Upload to HF Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force \
-            https://sukiboo:${HF_TOKEN}@huggingface.co/spaces/sukiboo/image-rotate-mirror \
-            main
+          huggingface-cli upload sukiboo/image-rotate-mirror . \
+            --repo-type=space \
+            --commit-message="Sync from GitHub ${{ github.sha }}" \
+            --exclude ".git*" ".github/*" ".claude/*" ".playwright-mcp/*" ".mypy_cache/*" "__pycache__/*" "todo"
