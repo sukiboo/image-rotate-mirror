@@ -6,3 +6,5 @@ venv/
 .DS_Store
 images/*
 !images/noodle.jpeg
+!images/noodle_left.png
+!images/noodle_right.png
