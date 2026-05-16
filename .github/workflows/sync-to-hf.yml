@@ -22,7 +22,13 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          huggingface-cli upload sukiboo/image-rotate-mirror . \
+          hf upload sukiboo/image-rotate-mirror . . \
             --repo-type=space \
             --commit-message="Sync from GitHub ${{ github.sha }}" \
-            --exclude ".git*" ".github/*" ".claude/*" ".playwright-mcp/*" ".mypy_cache/*" "__pycache__/*" "todo"
+            --exclude ".git*" \
+            --exclude ".github/*" \
+            --exclude ".claude/*" \
+            --exclude ".playwright-mcp/*" \
+            --exclude ".mypy_cache/*" \
+            --exclude "__pycache__/*" \
+            --exclude "todo"
