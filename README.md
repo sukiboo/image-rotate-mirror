@@ -8,12 +8,12 @@ sdk_version: 1.56.0
 app_file: app.py
 pinned: false
 license: mit
-short_description: Just a silly little app to make silly little cat pictures.
+short_description: Just a silly little app to make silly little cat pictures
 ---
 
 | Input | Left mirror | Right mirror |
 |---|---|---|
-| ![](images/noodle.jpeg) | ![](images/noodle_left.png) | ![](images/noodle_right.png) |
+| <img src="images/noodle.jpeg" width="240"> | <img src="images/noodle_left.png" width="240"> | <img src="images/noodle_right.png" width="240"> |
 
 ### Usage
 
